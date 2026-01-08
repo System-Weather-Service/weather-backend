@@ -1,18 +1,15 @@
 {
-  "name": "weather-pro-backend",
+  "name": "weather-pro",
   "version": "1.0.0",
-  "description": "Secure backend for Weather Pro Logger",
-  "main": "server.js",
+  "private": true,
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
     "body-parser": "^1.20.2",
-    "aws-sdk": "^2.1450.0",
-    "googleapis": "^126.0.0",
-    "dotenv": "^16.3.1",
-    "nanoid": "^3.3.6"
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "googleapis": "^131.0.0"
   }
 }
